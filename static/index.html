@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>多 Agent 协作工作流 Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #1d2430;
+      }
+      body { margin: 0; }
+      header { background: #111827; color: white; padding: 18px 28px; }
+      h1 { font-size: 20px; margin: 0; }
+      main { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 20px; padding: 20px; }
+      section { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; }
+      .sidebar { display: flex; flex-direction: column; min-height: calc(100vh - 82px); }
+      label { display: block; font-weight: 650; margin: 12px 0 6px; }
+      input, textarea, select {
+        box-sizing: border-box; width: 100%; border: 1px solid #cbd5e1; border-radius: 6px;
+        font: inherit; padding: 9px 10px;
+      }
+      textarea { min-height: 110px; resize: vertical; }
+      button {
+        border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer;
+        font-weight: 700; padding: 9px 12px; margin: 8px 8px 0 0;
+      }
+      button.secondary { background: #475569; }
+      button.danger { background: #dc2626; }
+      button.ghost {
+        align-items: center; background: white; border: 1px solid #e5e7eb; color: #1d2430;
+        display: inline-flex; gap: 8px; padding: 8px 11px;
+      }
+      button:disabled { background: #94a3b8; cursor: not-allowed; }
+      pre { white-space: pre-wrap; word-break: break-word; background: #f8fafc; border-radius: 6px; padding: 12px; }
+      .status { display: inline-flex; border-radius: 999px; background: #dbeafe; color: #1e40af; padding: 4px 10px; font-weight: 700; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+      .artifact textarea { min-height: 260px; font-family: Consolas, "Courier New", monospace; font-size: 13px; line-height: 1.45; }
+      .events { max-height: 300px; overflow: auto; padding-left: 18px; }
+      .events li { margin-bottom: 8px; }
+      .hint { color: #64748b; font-size: 13px; }
+      .downloads a { display: inline-block; margin: 6px 12px 6px 0; }
+      .inline-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .inline-actions button { margin-top: 0; }
+      .settings-wrap { display: inline-block; margin-top: 16px; position: relative; }
+      .sidebar > .settings-wrap { margin-top: auto; }
+      .settings-popover {
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid #d9dde5;
+        border-radius: 16px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 8px;
+        max-height: 72vh;
+        overflow: auto;
+        padding: 14px 18px;
+        position: absolute;
+        width: min(560px, calc(100vw - 48px));
+        z-index: 20;
+      }
+      .settings-menu-row {
+        align-items: center;
+        border-bottom: 1px solid #edf0f4;
+        color: #242933;
+        display: flex;
+        gap: 12px;
+        min-height: 42px;
+      }
+      .settings-menu-row.muted { color: #8a9099; }
+      .settings-menu-row:last-of-type { border-bottom: 0; }
+      .settings-icon { color: #69707a; font-size: 18px; width: 22px; }
+      .settings-shortcut { color: #8a9099; margin-left: auto; }
+      .settings-section { border-top: 1px solid #edf0f4; margin-top: 12px; padding-top: 12px; }
+      .config-row { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-top: 10px; }
+      .skill-list label { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; margin: 6px 10px 0 0; }
+      .skill-list input { width: auto; }
+      .review-list { display: grid; gap: 10px; }
+      .review-item { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; }
+      .review-item.selected-accept { border-color: #60a5fa; background: #eff6ff; }
+      .review-item.selected-reject { border-color: #cbd5e1; background: #f8fafc; }
+      .review-item.selected-modify { border-color: #f59e0b; background: #fffbeb; }
+      .review-text { background: transparent; padding: 0; margin: 10px 0; font-family: inherit; font-size: inherit; line-height: 1.5; }
+      .review-actions button { padding: 6px 9px; }
+      .review-actions button.active { outline: 2px solid #111827; outline-offset: 1px; }
+      .modify-box { margin-top: 8px; }
+      @media (max-width: 900px) {
+        main, .grid { grid-template-columns: 1fr; }
+        .settings-popover { bottom: 72px; left: 16px; position: fixed; right: 16px; width: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <header><h1>多 Agent 协作工作流</h1></header>
+    <main>
+      <section class="sidebar">
+        <h2>创建工作流</h2>
+        <label for="repo">存量代码仓库地址或本地路径</label>
+        <input id="repo" value="D:\git_projects\nanobot" />
+        <label for="requirement">原始需求描述</label>
+        <textarea id="requirement">开发一个多 Agent 协作完成需求交付的工作流程序。</textarea>
+        <label for="requirementFile">或导入需求 Markdown 文档</label>
+        <input id="requirementFile" type="file" accept=".md,text/markdown,text/plain" />
+        <div class="inline-actions">
+          <button id="loadRequirementFileBtn" class="secondary" type="button">读取需求文档</button>
+          <button id="clearRequirementFileBtn" class="secondary" type="button">清空文档选择</button>
+          <span id="requirementFileHint" class="hint">仅支持 .md，最大 500KB；读取后会填入上方文本框，可继续编辑。</span>
+        </div>
+
+        <button id="startBtn">创建工作流</button>
+
+        <h2>当前状态</h2>
+        <p><span id="status" class="status">尚未开始</span></p>
+        <p id="stageHint" class="hint"></p>
+        <p id="actionMessage" class="hint"></p>
+
+        <div id="clarificationBox" hidden>
+          <h3>需求澄清</h3>
+          <p><strong>问题：</strong><span id="clarificationQuestion"></span></p>
+          <label for="clarificationAnswer">你的回答</label>
+          <textarea id="clarificationAnswer"></textarea>
+          <button id="answerClarificationBtn">提交回答，继续下一轮</button>
+        </div>
+
+        <div id="gateBox" hidden>
+          <h3>人工审核操作</h3>
+          <label for="feedback">驳回意见 / 修改建议</label>
+          <textarea id="feedback"></textarea>
+          <div id="gateActions"></div>
+        </div>
+
+        <div id="reviewDecisionBox" hidden>
+          <h3 id="reviewDecisionTitle">审核报告处理</h3>
+          <p id="reviewDecisionHint" class="hint">请逐条处理 Review Agent 的建议：接受表示按建议修改，拒绝表示不改，修改表示用你填写的自定义意见修改。</p>
+          <div id="reviewSuggestionList" class="review-list"></div>
+          <button id="applyReviewBtn">提交选择并修改</button>
+          <button id="skipReviewBtn" class="secondary">全部拒绝并继续</button>
+        </div>
+
+        <div id="rollbackBox" hidden>
+          <h3>流程撤回</h3>
+          <label for="rollbackTarget">撤回到</label>
+          <select id="rollbackTarget">
+            <option value="clarification_required">需求澄清阶段</option>
+            <option value="design_human_review">设计文档审核阶段</option>
+            <option value="design_review_human_review">设计审核报告处理阶段</option>
+            <option value="development_plan_human_review">开发方案/伪代码审核阶段</option>
+            <option value="implementation_human_review">代码和 DT 审核阶段</option>
+            <option value="review_human_review">审核报告处理阶段</option>
+          </select>
+          <label for="rollbackReason">撤回原因</label>
+          <textarea id="rollbackReason"></textarea>
+          <button id="rollbackBtn" class="secondary">撤回流程</button>
+        </div>
+
+        <h2>事件日志</h2>
+        <ol id="events" class="events"></ol>
+        <div class="settings-wrap">
+          <button id="settingsToggle" class="ghost" type="button"><span>⚙</span><span>设置</span></button>
+          <div id="settingsPanel" class="settings-popover" hidden>
+            <div class="settings-menu-row muted"><span class="settings-icon">◎</span><span>本地工作流配置</span></div>
+            <div class="settings-menu-row"><span class="settings-icon">⚙</span><span>设置</span><span class="settings-shortcut">Ctrl+,</span></div>
+            <div class="settings-menu-row"><span class="settings-icon">◔</span><span>模型、Prompt 与 Skill</span><span class="settings-shortcut">›</span></div>
+
+            <div class="settings-section">
+              <h3>模型 API 设置</h3>
+              <p class="hint">留空则使用 <code>.env</code> 中的配置。这里的配置只对当前创建的工作流生效。</p>
+              <label for="apiKey">API Key</label>
+              <input id="apiKey" type="password" placeholder="留空使用 .env" />
+              <label for="baseUrl">Base URL</label>
+              <input id="baseUrl" placeholder="https://codex.dakeai.cc/v1" />
+              <label for="modelName">Model</label>
+              <input id="modelName" placeholder="gpt-5.4-mini" />
+              <label for="timeoutSeconds">Timeout Seconds</label>
+              <input id="timeoutSeconds" placeholder="180" />
+              <label for="maxRetries">Max Retries</label>
+              <input id="maxRetries" placeholder="3" />
+            </div>
+
+            <div class="settings-section">
+              <h3>导入本地 Prompt / Skill</h3>
+              <p class="hint">Prompt 仅支持 Markdown。Skill 可以导入单个 <code>SKILL.md</code>，也可以导入包含 <code>SKILL.md</code>、requirements、config、template、script.py 等文本资源的文件夹。</p>
+              <label for="promptFile">导入 Agent Prompt (.md)</label>
+              <input id="promptFile" type="file" accept=".md,text/markdown,text/plain" />
+              <button id="importPromptBtn" class="secondary" type="button">导入 Prompt</button>
+              <label for="skillFile">导入 Skill (.md)</label>
+              <input id="skillFile" type="file" accept=".md,text/markdown,text/plain" />
+              <label for="skillFolder">或导入 Skill 文件夹</label>
+              <input id="skillFolder" type="file" webkitdirectory multiple />
+              <label for="skillName">Skill 名称</label>
+              <input id="skillName" placeholder="例如 design-case-sky" />
+              <button id="importSkillBtn" class="secondary" type="button">导入单个 Skill.md</button>
+              <button id="importSkillFolderBtn" class="secondary" type="button">导入 Skill 文件夹</button>
+            </div>
+
+            <div class="settings-section">
+              <h3>Agent Prompt / Skill 配置</h3>
+              <p class="hint">可以为每个 Agent 灵活选择 Prompt 和本步骤使用的 Skill。</p>
+              <div id="agentConfig"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>当前阶段产物</h2>
+        <div id="downloads" class="downloads"></div>
+        <label for="artifactSelect">选择产物</label>
+        <select id="artifactSelect"></select>
+        <div class="artifact"><textarea id="artifactText"></textarea></div>
+        <button id="saveArtifactBtn" class="secondary" disabled>保存人工修改</button>
+        <div id="artifactGrid" class="grid"></div>
+      </section>
+    </main>
+
+    <script>
+      let current = null;
+      let configOptions = null;
+      let reviewChoices = [];
+      const agentNames = ["DesignAgent", "DesignReviewAgent", "DevelopAgent", "ReviewAgent"];
+      const $ = (id) => document.getElementById(id);
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "request failed");
+        return data;
+      }
+
+      function render(state) {
+        current = state;
+        const visibleArtifacts = visibleArtifactsForStatus(state.status);
+        refreshArtifactSelect(visibleArtifacts);
+        $("status").textContent = statusText(state.status);
+        $("stageHint").textContent = stageHint(state.status);
+        $("saveArtifactBtn").disabled = !state.id;
+        $("clarificationBox").hidden = state.status !== "clarification_required";
+        $("gateBox").hidden = !["design_human_review", "development_plan_human_review", "implementation_human_review"].includes(state.status);
+        $("reviewDecisionBox").hidden = !["design_review_human_review", "review_human_review"].includes(state.status);
+        $("rollbackBox").hidden = !state.id || state.status === "done";
+        $("clarificationQuestion").textContent = state.artifacts.clarification_question || "";
+        $("clarificationAnswer").value = "";
+        $("feedback").value = "";
+        renderGateActions(state.status);
+        renderReviewSuggestions(state);
+        const selected = $("artifactSelect").value;
+        $("artifactText").value = state.artifacts[selected] || "";
+        renderEvents(state.events);
+        renderDownloads(visibleArtifacts);
+        renderArtifacts(visibleArtifacts, state.artifacts);
+      }
+
+      async function loadConfigOptions() {
+        configOptions = await api("/api/config-options");
+        $("baseUrl").placeholder = configOptions.llm_defaults?.base_url || "https://codex.dakeai.cc/v1";
+        $("modelName").placeholder = configOptions.llm_defaults?.model || "gpt-5.4-mini";
+        $("timeoutSeconds").placeholder = configOptions.llm_defaults?.timeout_seconds || "180";
+        $("maxRetries").placeholder = configOptions.llm_defaults?.max_retries || "3";
+        renderAgentConfig(configOptions.defaults);
+      }
+
+      function renderAgentConfig(defaults) {
+        $("agentConfig").innerHTML = "";
+        for (const agentName of agentNames) {
+          const row = document.createElement("div");
+          row.className = "config-row";
+          const promptOptions = configOptions.prompts.map((prompt) => (
+            `<option value="${escapeHtml(prompt)}" ${defaults[agentName]?.prompt === prompt ? "selected" : ""}>${escapeHtml(prompt)}</option>`
+          )).join("");
+          const skillOptions = configOptions.skills.map((skill) => {
+            const checked = defaults[agentName]?.skills?.includes(skill) ? "checked" : "";
+            return `<label><input type="checkbox" data-agent="${agentName}" data-skill="${escapeHtml(skill)}" ${checked}>${escapeHtml(skill)}</label>`;
+          }).join("");
+          const clarificationSkillOptions = configOptions.skills.map((skill) => {
+            const checked = defaults[agentName]?.clarification_skills?.includes(skill) ? "checked" : "";
+            return `<label><input type="checkbox" data-agent="${agentName}" data-skill-key="clarification_skills" data-skill="${escapeHtml(skill)}" ${checked}>${escapeHtml(skill)}</label>`;
+          }).join("");
+          const designSkillOptions = configOptions.skills.map((skill) => {
+            const checked = defaults[agentName]?.design_skills?.includes(skill) ? "checked" : "";
+            return `<label><input type="checkbox" data-agent="${agentName}" data-skill-key="design_skills" data-skill="${escapeHtml(skill)}" ${checked}>${escapeHtml(skill)}</label>`;
+          }).join("");
+          const designStageConfig = agentName === "DesignAgent" ? `
+            <label>需求澄清 Skills</label>
+            <div class="skill-list">${clarificationSkillOptions}</div>
+            <label>方案设计 Skills</label>
+            <div class="skill-list">${designSkillOptions}</div>
+          ` : "";
+          row.innerHTML = `
+            <strong>${agentName}</strong>
+            <label>Prompt</label>
+            <select id="prompt_${agentName}">${promptOptions}</select>
+            <label>Skills</label>
+            <div class="skill-list">${skillOptions}</div>
+            ${designStageConfig}
+          `;
+          $("agentConfig").appendChild(row);
+        }
+      }
+
+      function collectAgentConfig() {
+        const result = {};
+        for (const agentName of agentNames) {
+          const selectedSkills = Array.from(document.querySelectorAll(`input[data-agent="${agentName}"]:checked`))
+            .filter((input) => !input.dataset.skillKey)
+            .map((input) => input.dataset.skill);
+          result[agentName] = { prompt: $(`prompt_${agentName}`).value, skills: selectedSkills };
+          if (agentName === "DesignAgent") {
+            result[agentName].clarification_skills = Array.from(document.querySelectorAll(`input[data-agent="${agentName}"][data-skill-key="clarification_skills"]:checked`))
+              .map((input) => input.dataset.skill);
+            result[agentName].design_skills = Array.from(document.querySelectorAll(`input[data-agent="${agentName}"][data-skill-key="design_skills"]:checked`))
+              .map((input) => input.dataset.skill);
+          }
+        }
+        return result;
+      }
+
+      function collectLlmConfig() {
+        const config = {
+          api_key: $("apiKey").value,
+          base_url: $("baseUrl").value,
+          model: $("modelName").value,
+          timeout_seconds: $("timeoutSeconds").value,
+          max_retries: $("maxRetries").value,
+        };
+        return Object.fromEntries(Object.entries(config).filter(([, value]) => value.trim()));
+      }
+
+      async function importMarkdownFile(kind) {
+        if (kind === "skill" && $("skillFolder").files.length) {
+          await importSkillFolder();
+          return;
+        }
+        const fileInput = kind === "prompt" ? $("promptFile") : $("skillFile");
+        const file = fileInput.files[0];
+        if (!file) { alert("请先选择一个 Markdown 文件。"); return; }
+        if (!file.name.endsWith(".md")) { alert("只允许导入 .md 文件。"); return; }
+        if (file.size > 200000) { alert("文件太大，最大允许 200KB。"); return; }
+        const content = await file.text();
+        if (!content.trim()) { alert("这个 Markdown 文件是空的，请选择包含内容的文件。"); return; }
+        if (kind === "prompt") {
+          await api("/api/import-prompt", { method: "POST", body: JSON.stringify({ filename: file.name, content }) });
+          alert("Prompt 导入成功。");
+        } else {
+          const skillName = $("skillName").value.trim() || file.name.replace(/\.md$/i, "");
+          await api("/api/import-skill", { method: "POST", body: JSON.stringify({ skill_name: skillName, content }) });
+          alert("Skill 导入成功。");
+        }
+        await loadConfigOptions();
+      }
+
+      async function importSkillFolder() {
+        const files = Array.from($("skillFolder").files || []);
+        if (!files.length) { alert("请先选择一个 Skill 文件夹。"); return; }
+        if (files.length > 100) { alert("Skill 文件夹文件太多，最多允许 100 个文件。"); return; }
+
+        const allowedExt = [".md", ".txt", ".py", ".html", ".htm", ".css", ".js", ".cjs", ".mjs", ".ts", ".tsx", ".sh", ".bash", ".ps1", ".bat", ".cmd", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".template", ".jinja", ".j2"];
+        const packageFiles = [];
+        let totalSize = 0;
+        for (const file of files) {
+          const path = file.webkitRelativePath || file.name;
+          const lowerName = file.name.toLowerCase();
+          const isAllowed = allowedExt.some((ext) => lowerName.endsWith(ext)) || lowerName === "requirements.txt" || lowerName === "skill";
+          if (!isAllowed) { alert(`不支持的 Skill 文件类型：${path}`); return; }
+          if (file.size > 200000) { alert(`文件太大，最大允许 200KB：${path}`); return; }
+          totalSize += file.size;
+          if (totalSize > 1000000) { alert("Skill 文件夹太大，最大允许 1MB。"); return; }
+          packageFiles.push({ path, content: await file.text() });
+        }
+
+        const hasSkillMd = packageFiles.some((file) => {
+          const parts = file.path.replace(/\\/g, "/").split("/").filter(Boolean);
+          const name = parts[parts.length - 1]?.toLowerCase();
+          return name === "skill.md" || name === "skill";
+        });
+        if (!hasSkillMd) { alert("Skill 文件夹必须包含 SKILL.md 或 SKILL。"); return; }
+
+        const firstPath = files[0].webkitRelativePath || "";
+        const folderName = firstPath.split("/").filter(Boolean)[0] || "";
+        const skillName = $("skillName").value.trim() || folderName;
+        if (!skillName) { alert("请输入 Skill 名称，或选择一个带文件夹名的目录。"); return; }
+
+        await api("/api/import-skill", {
+          method: "POST",
+          body: JSON.stringify({ skill_name: skillName, files: packageFiles }),
+        });
+        alert(`Skill 文件夹导入成功：${skillName}`);
+        await loadConfigOptions();
+      }
+
+      async function loadRequirementMarkdown() {
+        const fileInput = $("requirementFile");
+        const file = fileInput.files[0];
+        if (!file) { alert("请先选择一个需求 Markdown 文档。"); return; }
+        if (!file.name.toLowerCase().endsWith(".md")) { alert("需求文档只支持 .md 文件。"); return; }
+        if (file.size > 500000) { alert("需求文档太大，最大允许 500KB。"); return; }
+        const content = await file.text();
+        $("requirement").value = content;
+        $("requirementFileHint").textContent = `已读取：${file.name}（${Math.ceil(file.size / 1024)}KB），你可以继续编辑上方内容。`;
+      }
+
+      function renderGateActions(status) {
+        const box = $("gateActions");
+        box.innerHTML = "";
+        const actions = {
+          design_human_review: [["通过设计文档，进入设计审核", "approve-design"], ["驳回设计文档", "reject-design", "danger"]],
+          development_plan_human_review: [["通过开发方案", "approve-development-plan"], ["驳回开发方案", "reject-development-plan", "danger"]],
+          implementation_human_review: [["通过代码和 DT", "approve-implementation"], ["驳回代码和 DT", "reject-implementation", "danger"]],
+        }[status] || [];
+        for (const [label, action, kind] of actions) {
+          const btn = document.createElement("button");
+          btn.textContent = label;
+          if (kind) btn.className = kind;
+          btn.onclick = () => postAction(action, { feedback: $("feedback").value });
+          box.appendChild(btn);
+        }
+      }
+
+      function renderReviewSuggestions(state) {
+        const list = $("reviewSuggestionList");
+        if (!list) return;
+        list.innerHTML = "";
+        if (!["design_review_human_review", "review_human_review"].includes(state.status)) {
+          reviewChoices = [];
+          return;
+        }
+
+        const isDesignReview = state.status === "design_review_human_review";
+        $("reviewDecisionTitle").textContent = isDesignReview ? "设计审核报告处理" : "代码审核报告处理";
+        $("reviewDecisionHint").textContent = isDesignReview
+          ? "请逐条处理 DesignReviewAgent 的设计建议：接受表示让 DesignAgent 修改设计文档，拒绝表示不改，修改表示用你的自定义意见修改。"
+          : "请逐条处理 Review Agent 的代码建议：接受表示让 Develop Agent 修改代码，拒绝表示不改，修改表示用你的自定义意见修改。";
+        $("applyReviewBtn").textContent = isDesignReview ? "提交选择并交给 DesignAgent 修改" : "提交选择并交给 Develop Agent 修改";
+        $("skipReviewBtn").textContent = isDesignReview ? "全部拒绝并进入开发方案" : "全部拒绝并输出最终代码";
+
+        const reportName = isDesignReview ? "design_review_report" : "review_report";
+        const suggestions = parseReviewSuggestions(state.artifacts[reportName] || "");
+        reviewChoices = suggestions.map((suggestion, index) => ({
+          key: `suggestion-${index}`,
+          id: suggestion.id,
+          label: suggestion.label,
+          text: suggestion.text,
+          decision: "reject",
+          custom: "",
+        }));
+
+        if (!suggestions.length) {
+          const item = document.createElement("div");
+          item.className = "review-item";
+          item.innerHTML = "<p>没有解析到可选择的审核建议。你可以先编辑审核报告，让建议以“建议 1.”、“建议 2.”开头。</p>";
+          list.appendChild(item);
+          return;
+        }
+
+        for (const choice of reviewChoices) {
+          const item = document.createElement("div");
+          item.className = "review-item selected-reject";
+          item.dataset.key = choice.key;
+          item.innerHTML = `
+            <strong>${escapeHtml(choice.label)}</strong>
+            <pre class="review-text">${escapeHtml(choice.text)}</pre>
+            <div class="review-actions">
+              <button type="button" data-decision="accept">接受</button>
+              <button type="button" data-decision="reject" class="active secondary">拒绝</button>
+              <button type="button" data-decision="modify" class="secondary">修改</button>
+            </div>
+            <div class="modify-box" hidden>
+              <label>自定义修改意见</label>
+              <textarea placeholder="请输入你希望 Develop Agent 按照什么方式修改"></textarea>
+            </div>
+          `;
+          item.querySelectorAll("button[data-decision]").forEach((button) => {
+            button.onclick = () => setReviewChoice(choice.key, button.dataset.decision);
+          });
+          item.querySelector("textarea").oninput = (event) => {
+            choice.custom = event.target.value;
+          };
+          list.appendChild(item);
+        }
+      }
+
+      function parseReviewSuggestions(report) {
+        const lines = String(report || "").split(/\r?\n/);
+        const suggestions = [];
+        let currentSuggestion = null;
+        const explicitSuggestionPattern = /^\s*(?:[-*]\s*)?建议\s*(\d+)[\.、)]\s*(.+)$/;
+
+        for (const line of lines) {
+          const match = line.match(explicitSuggestionPattern);
+          if (match) {
+            if (currentSuggestion) suggestions.push(currentSuggestion);
+            currentSuggestion = { id: match[1], label: `建议 ${match[1]}`, text: match[2].trim() };
+          } else if (currentSuggestion && line.trim()) {
+            currentSuggestion.text += "\n" + line.trim();
+          }
+        }
+        if (currentSuggestion) suggestions.push(currentSuggestion);
+        return suggestions;
+      }
+
+      function setReviewChoice(key, decision) {
+        const choice = reviewChoices.find((item) => item.key === key);
+        if (!choice) return;
+        choice.decision = decision;
+        const item = document.querySelector(`.review-item[data-key="${CSS.escape(key)}"]`);
+        if (!item) return;
+        item.classList.remove("selected-accept", "selected-reject", "selected-modify");
+        item.classList.add(`selected-${decision}`);
+        item.querySelectorAll("button[data-decision]").forEach((button) => {
+          button.classList.toggle("active", button.dataset.decision === decision);
+        });
+        item.querySelector(".modify-box").hidden = decision !== "modify";
+      }
+
+      function collectReviewDecisions() {
+        return {
+          decisions: reviewChoices.map((choice) => ({
+            id: choice.id,
+            label: choice.label,
+            suggestion: choice.text,
+            decision: choice.decision,
+            custom_instruction: choice.decision === "modify" ? choice.custom.trim() : "",
+          })),
+        };
+      }
+
+      function allReviewSuggestionsRejected() {
+        return reviewChoices.length > 0 && reviewChoices.every((choice) => choice.decision === "reject");
+      }
+
+      function renderEvents(events) {
+        $("events").innerHTML = "";
+        for (const event of events) {
+          const li = document.createElement("li");
+          li.textContent = `${event.at} [${event.actor}] ${event.message}`;
+          $("events").appendChild(li);
+        }
+      }
+
+      function renderDownloads(names) {
+        if (!current) return;
+        $("downloads").innerHTML = names.map((name) => (
+          `<a href="/api/workflows/${current.id}/download/${name}" target="_blank">下载 ${artifactLabel(name)}</a>`
+        )).join("");
+      }
+
+      function renderArtifacts(names, artifacts) {
+        $("artifactGrid").innerHTML = "";
+        for (const name of names) {
+          const section = document.createElement("section");
+          section.innerHTML = renderArtifact(name, artifacts[name] || "");
+          $("artifactGrid").appendChild(section);
+        }
+      }
+
+      function renderArtifact(name, content) {
+        if (name !== "generated_files" || !content) {
+          return `<h3>${artifactLabel(name)}</h3><pre>${escapeHtml(content)}</pre>`;
+        }
+        try {
+          const files = JSON.parse(content);
+          const renderedFiles = Object.entries(files).map(([path, fileContent]) => (
+            `<h4>${escapeHtml(path)}</h4><pre>${escapeHtml(fileContent)}</pre>`
+          )).join("");
+          return `<h3>代码文件</h3>${renderedFiles}`;
+        } catch {
+          return `<h3>${artifactLabel(name)}</h3><pre>${escapeHtml(content)}</pre>`;
+        }
+      }
+
+      function refreshArtifactSelect(names) {
+        const previous = $("artifactSelect").value;
+        $("artifactSelect").innerHTML = "";
+        for (const name of names) {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = artifactLabel(name);
+          $("artifactSelect").appendChild(option);
+        }
+        if (names.includes(previous)) $("artifactSelect").value = previous;
+      }
+
+      async function postAction(action, payload = {}, loadingMessage = "正在提交，请稍候...") {
+        if (!current) { alert("请先创建工作流。"); return; }
+        try {
+          setActionMessage(loadingMessage);
+          const nextState = await api(`/api/workflows/${current.id}/${action}`, { method: "POST", body: JSON.stringify(payload) });
+          render(nextState);
+          setActionMessage("已提交，页面已刷新。");
+        } catch (err) {
+          setActionMessage("");
+          alert("操作失败：" + err.message);
+        }
+      }
+
+      $("startBtn").onclick = async () => {
+        try {
+          const requirement = $("requirement").value.trim();
+          if (!requirement) {
+            alert("请填写原始需求，或先导入一个 .md 需求文档。");
+            return;
+          }
+          render(await api("/api/workflows", {
+            method: "POST",
+            body: JSON.stringify({
+              repo_url: $("repo").value,
+              requirement,
+              agent_config: collectAgentConfig(),
+              llm_config: collectLlmConfig(),
+            }),
+          }));
+        } catch (err) {
+          alert("创建失败：" + err.message);
+        }
+      };
+      $("loadRequirementFileBtn").onclick = loadRequirementMarkdown;
+      $("requirementFile").onchange = () => {
+        if ($("requirementFile").files[0]) loadRequirementMarkdown();
+      };
+      $("clearRequirementFileBtn").onclick = () => {
+        $("requirementFile").value = "";
+        $("requirementFileHint").textContent = "仅支持 .md，最大 500KB；读取后会填入上方文本框，可继续编辑。";
+      };
+      $("answerClarificationBtn").onclick = () => {
+        const answer = $("clarificationAnswer").value.trim();
+        if (!answer) { alert("请先填写澄清问题的回答。"); return; }
+        const loadingMessage = current && current.clarification_round >= 2
+          ? "正在生成需求分析和设计文档，请稍候..."
+          : "正在提交回答，请稍候...";
+        postAction("answer-clarification", { answer }, loadingMessage);
+      };
+      $("applyReviewBtn").onclick = () => {
+        if (!reviewChoices.length) {
+          alert("没有可提交的审核建议。");
+          return;
+        }
+        const hasEmptyModify = reviewChoices.some((choice) => choice.decision === "modify" && !choice.custom.trim());
+        if (hasEmptyModify) {
+          alert("选择“修改”的建议需要填写自定义修改意见。");
+          return;
+        }
+        if (allReviewSuggestionsRejected()) {
+          alert("所有建议都被拒绝了。如不做任何修改，请点击“全部拒绝并继续”。");
+          return;
+        }
+        const isDesignReview = current?.status === "design_review_human_review";
+        postAction(isDesignReview ? "submit-design-review-decisions" : "submit-review-decisions", {
+          decisions: JSON.stringify(collectReviewDecisions(), null, 2),
+          no_changes: false,
+        }, isDesignReview ? "正在将人工选择传递给 DesignAgent 修改设计文档..." : "正在将人工选择传递给 Develop Agent 修改代码...");
+      };
+      $("skipReviewBtn").onclick = () => {
+        reviewChoices.forEach((choice) => choice.decision = "reject");
+        const isDesignReview = current?.status === "design_review_human_review";
+        postAction(isDesignReview ? "submit-design-review-decisions" : "submit-review-decisions", {
+          decisions: JSON.stringify(collectReviewDecisions(), null, 2),
+          no_changes: true,
+        });
+      };
+      $("saveArtifactBtn").onclick = async () => {
+        try {
+          setActionMessage("正在保存人工修改...");
+          render(await api(`/api/workflows/${current.id}/artifacts`, {
+            method: "POST",
+            body: JSON.stringify({ artifact: $("artifactSelect").value, content: $("artifactText").value }),
+          }));
+          setActionMessage("人工修改已保存。");
+        } catch (err) {
+          setActionMessage("");
+          alert("保存失败：" + err.message);
+        }
+      };
+      $("artifactSelect").onchange = () => { if (current) render(current); };
+      $("settingsToggle").onclick = () => { $("settingsPanel").hidden = !$("settingsPanel").hidden; };
+      $("importPromptBtn").onclick = () => importMarkdownFile("prompt").catch((err) => alert("导入失败：" + err.message));
+      $("importSkillBtn").onclick = () => importMarkdownFile("skill").catch((err) => alert("导入失败：" + err.message));
+      $("importSkillFolderBtn").onclick = () => importSkillFolder().catch((err) => alert("导入失败：" + err.message));
+      $("skillFolder").onchange = () => {
+        if ($("skillFolder").files.length) $("skillFile").value = "";
+      };
+      $("skillFile").onchange = () => {
+        if ($("skillFile").files.length) $("skillFolder").value = "";
+      };
+      $("rollbackBtn").onclick = () => {
+        if (!confirm("确定要撤回流程吗？当前产物会保留用于对照。")) return;
+        postAction("rollback", { target_status: $("rollbackTarget").value, reason: $("rollbackReason").value });
+      };
+      document.addEventListener("click", (event) => {
+        const panel = $("settingsPanel");
+        const wrap = document.querySelector(".settings-wrap");
+        if (!panel.hidden && wrap && !wrap.contains(event.target)) panel.hidden = true;
+      });
+
+      function visibleArtifactsForStatus(status) {
+        return ({
+          clarification_required: ["repo_summary", "clarification_question", "clarification_history"],
+          design_human_review: ["repo_summary", "clarification_history", "requirement_analysis", "design_doc"],
+          design_review_human_review: ["requirement_analysis", "design_doc", "design_review_report", "design_review_decisions"],
+          development_plan_human_review: ["design_doc", "development_plan"],
+          implementation_human_review: ["development_plan", "generated_files", "dt_tests", "self_test_report"],
+          review_human_review: ["generated_files", "dt_tests", "self_test_report", "review_report", "review_decisions"],
+          done: ["design_doc", "generated_files", "dt_tests", "self_test_report", "review_report", "review_decisions"],
+          failed: ["repo_summary", "design_doc", "design_review_report", "generated_files", "review_report"],
+        })[status] || ["repo_summary"];
+      }
+
+      function statusText(status) {
+        return ({
+          clarification_required: "等待需求澄清",
+          design_human_review: "等待人工审核设计文档",
+          design_review_human_review: "等待人工处理设计审核报告",
+          development_plan_human_review: "等待人工审核开发方案",
+          implementation_human_review: "等待人工审核代码和 DT",
+          review_human_review: "等待人工处理审核报告",
+          done: "已完成",
+          failed: "失败",
+        })[status] || status;
+      }
+
+      function stageHint(status) {
+        return ({
+          clarification_required: "Design Agent 每轮只问一个问题，回答后才进入下一轮。",
+          design_human_review: "你可以直接通过、修改后通过，或填写意见驳回给 Design Agent 重做。",
+          design_review_human_review: "DesignReviewAgent 已生成设计审核报告，请逐条接受、拒绝或自定义修改建议。",
+          development_plan_human_review: "Develop Agent 已生成开发方案/伪代码，请审核。",
+          implementation_human_review: "Develop Agent 已生成代码文件、DT 用例和自测报告，请审核。",
+          review_human_review: "Review Agent 已生成审核报告，请选择接受或拒绝建议。",
+          done: "流程结束，可以下载最终代码文件和 DT 用例。",
+        })[status] || "";
+      }
+
+      function artifactLabel(name) {
+        return ({
+          repo_summary: "仓库理解",
+          clarification_question: "澄清问题",
+          clarification_history: "澄清记录",
+          requirement_analysis: "需求分析",
+          design_doc: "设计文档",
+          design_review_report: "设计审核报告",
+          design_review_decisions: "设计审核决策",
+          development_plan: "开发方案/伪代码",
+          generated_files: "代码文件",
+          dt_tests: "DT 用例",
+          self_test_report: "自测报告",
+          review_report: "审核报告",
+          review_decisions: "审核决策",
+        })[name] || name;
+      }
+
+      function escapeHtml(text) {
+        return String(text).replace(/[&<>"']/g, (ch) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+        })[ch]);
+      }
+
+      function setActionMessage(message) { $("actionMessage").textContent = message; }
+
+      loadConfigOptions().catch((err) => alert("加载 Agent 配置失败：" + err.message));
+    </script>
+  </body>
+</html>
