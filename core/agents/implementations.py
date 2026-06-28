@@ -63,7 +63,7 @@ class DesignAgent(AgentBase):
 
     def start_requirement_analysis(self, state: WorkflowState) -> None:
         ctx = AgentContext(state, self.actor)
-        repo = inspect_repository(state.repo_url)
+        repo = inspect_repository(state.repo_url, query=state.requirement)
         ctx.write(
             Artifact.REPO_SUMMARY,
             (
@@ -124,6 +124,12 @@ class DesignAgent(AgentBase):
                 "Return only a JSON object with exactly these keys:\n"
                 "- requirement_analysis: markdown string\n"
                 "- design_doc: markdown string\n\n"
+                "If the repository summary says 'Directory scan completed: yes', do not claim that "
+                "the actual directory scan was not completed. Use the provided directory tree and "
+                "key file excerpts as repository context.\n\n"
+                "If the repository summary includes 'C/C++ project analysis', use that section to "
+                "identify modules, build files, headers, macros, and relevant implementation areas. "
+                "Do not treat a detected C/C++ repository as a generic web or Python demo.\n\n"
                 "Do not wrap the JSON in markdown fences.\n\n"
                 f"Design revision: {state.design_revision}\n\n"
                 f"Original requirement:\n{state.requirement}\n\n"
@@ -204,6 +210,8 @@ class DevelopAgent(AgentBase):
             (
                 "Generate a Chinese development plan and pseudocode from the approved design.\n"
                 "Do not produce final code files yet. Address human feedback if any.\n\n"
+                "If the repository summary includes C/C++ project analysis, ground the plan in "
+                "the detected modules, build files, headers, macros, and source files.\n\n"
                 f"Development revision: {state.development_revision}\n\n"
                 f"Repository summary:\n{ctx.read(Artifact.REPO_SUMMARY)}\n\n"
                 f"Design document:\n{ctx.read(Artifact.DESIGN_DOC)}\n\n"
@@ -223,6 +231,8 @@ class DevelopAgent(AgentBase):
                 "Generate implementation files and DT test files.\n"
                 "Return only a JSON object mapping file paths to file contents.\n"
                 "Include both application code and DT tests.\n\n"
+                "If this is a C/C++ project, generate plausible .c/.h/build/test changes that "
+                "fit the detected repository structure instead of generic Python or web files.\n\n"
                 f"Implementation revision: {state.implementation_revision}\n\n"
                 f"Repository summary:\n{ctx.read(Artifact.REPO_SUMMARY)}\n\n"
                 f"Design document:\n{ctx.read(Artifact.DESIGN_DOC)}\n\n"
